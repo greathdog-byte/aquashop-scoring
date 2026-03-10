@@ -125,14 +125,22 @@ st.markdown("""<div style='display:flex;align-items:center;gap:12px;padding:8px 
   <div style='margin-left:auto;font-size:10px;letter-spacing:1px;color:#00d4ff;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:3px 8px'>AI · GEMINI</div>
 </div>""", unsafe_allow_html=True)
 
+# API kulcs betöltése: először Streamlit secrets, ha nincs akkor env, ha nincs akkor beégetett
+def get_api_key():
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except:
+        pass
+    import os
+    env_key = os.environ.get("GEMINI_API_KEY", "")
+    if env_key:
+        return env_key
+    return "AIzaSyBYAmmzzIZ6-KTnduURbpRQvCqHSHye9hw"
+
+if "api_key" not in st.session_state:
+    st.session_state.api_key = get_api_key()
+
 with st.sidebar:
-    st.markdown("### 🔑 Gemini API kulcs")
-    st.markdown("Ingyenes kulcs: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)\n\n1. Nyisd meg a linket\n2. Kattints: **Create API key**\n3. Másold be ↓")
-    api_key = st.text_input("API kulcs", type="password", placeholder="AIzaSy...", value=st.session_state.get("api_key",""))
-    if api_key:
-        st.session_state.api_key = api_key
-        st.success("✓ Kulcs beállítva")
-    st.divider()
     st.markdown("### 📋 Márkaadatbázis")
     for src, data in BRAND_DB.items():
         with st.expander(f"{data['label']} ({len(data['brands'])} márka)"):
@@ -149,7 +157,7 @@ with col2:
 
 if scan_btn and domain_input:
     if not st.session_state.get("api_key"):
-        st.error("⚠️ Először add meg a Gemini API kulcsot a bal oldali sávban!")
+        st.error("⚠️ API kulcs hiba! Ellenőrizd a Streamlit secrets beállítást.")
         st.stop()
 
     raw = domain_input.strip()
