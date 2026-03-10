@@ -190,16 +190,35 @@ FONTOS SZABÁLYOK:
 Válaszolj CSAK JSON-nal, semmi más szöveg!"""
 
             st.write("📊 Aquashop vs. konkurens márkák összehasonlítása...")
-            response = client.models.generate_content(
-                model="gemini-1.5-flash-latest",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                    temperature=0.1,
-                    max_output_tokens=2500,
-                )
-            )
-            st.write("⚡ Pontszámok kiszámítása...")
+            # Modell fallback lista - sorban próbáljuk
+            MODELS = [
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-lite",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-8b",
+            ]
+            response = None
+            used_model = ""
+            for model_name in MODELS:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            tools=[types.Tool(google_search=types.GoogleSearch())],
+                            temperature=0.1,
+                            max_output_tokens=2500,
+                        )
+                    )
+                    used_model = model_name
+                    break
+                except Exception as model_err:
+                    if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
+                        continue
+                    raise model_err
+            if response is None:
+                raise Exception("Egyik Gemini modell sem elérhető. Ellenőrizd az API kulcsot!")
+            st.write(f"⚡ Pontszámok kiszámítása... ({used_model})")
             raw_text = response.text
             # Robusztus JSON kinyerés
             clean = re.sub(r'```json|```', '', raw_text).strip()
