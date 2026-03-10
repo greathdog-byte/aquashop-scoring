@@ -197,12 +197,41 @@ Add vissza CSAK ezt a JSON-t, semmi más szöveg:
             )
 
             # Márka JSON kinyerése
-            brand_text = re.sub(r'```json|```', '', brand_response.text).strip()
+            brand_raw = brand_response.text if brand_response.text else ""
+            brand_text = re.sub(r'```json|```', '', brand_raw).strip()
             bs = brand_text.find('{')
             be = brand_text.rfind('}')
-            if bs == -1:
-                raise ValueError("Nem sikerült a webshopot elérni. Próbáld újra!")
-            brand_data = json.loads(brand_text[bs:be+1])
+
+            if bs == -1 or be == -1:
+                # AI nem adott JSON-t - megpróbáljuk a nyers szövegből kinyerni a márkákat
+                st.write("⚠️ JSON nem érkezett, szöveges feldolgozás...")
+                brand_data = {"aquashop": [], "aqualing": [], "fluidra": [], "egyeb": [],
+                              "webshop_neve": domain, "osszefoglalo": brand_raw[:300]}
+                # Végigmegyünk az összes ismert márkanéven és keressük a szövegben
+                for b in BRAND_DB["aquashop"]["brands"]:
+                    if b.lower() in brand_raw.lower():
+                        brand_data["aquashop"].append(b)
+                for b in BRAND_DB["aqualing"]["brands"]:
+                    if b.lower() in brand_raw.lower():
+                        brand_data["aqualing"].append(b)
+                for b in BRAND_DB["fluidra"]["brands"]:
+                    if b.lower() in brand_raw.lower():
+                        brand_data["fluidra"].append(b)
+            else:
+                try:
+                    brand_data = json.loads(brand_text[bs:be+1])
+                except json.JSONDecodeError:
+                    brand_data = {"aquashop": [], "aqualing": [], "fluidra": [], "egyeb": [],
+                                  "webshop_neve": domain, "osszefoglalo": ""}
+                    for b in BRAND_DB["aquashop"]["brands"]:
+                        if b.lower() in brand_raw.lower():
+                            brand_data["aquashop"].append(b)
+                    for b in BRAND_DB["aqualing"]["brands"]:
+                        if b.lower() in brand_raw.lower():
+                            brand_data["aqualing"].append(b)
+                    for b in BRAND_DB["fluidra"]["brands"]:
+                        if b.lower() in brand_raw.lower():
+                            brand_data["fluidra"].append(b)
 
             found_aq  = brand_data.get("aquashop", [])
             found_al  = brand_data.get("aqualing", [])
@@ -249,10 +278,18 @@ Add vissza CSAK ezt a JSON-t:
                 config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=1000)
             )
 
-            score_text = re.sub(r'```json|```', '', score_response.text).strip()
+            score_raw = score_response.text if score_response.text else "{}"
+            score_text = re.sub(r'```json|```', '', score_raw).strip()
             ss = score_text.find('{')
             se = score_text.rfind('}')
-            score_data = json.loads(score_text[ss:se+1])
+            if ss == -1:
+                raise ValueError("Pontozás sikertelen. Próbáld újra!")
+            try:
+                score_data = json.loads(score_text[ss:se+1])
+            except json.JSONDecodeError:
+                score_data = {"scores": {"exkluziv_termekek": 0, "kinalat_teljessege": 0,
+                              "tartalmi_minoseg": 0, "webshop_aktivitas": 0, "seo_elkotelezettsege": 0},
+                              "tier": "BASIC", "javasolt_teendok": "", "bizonyitekok": {}}
 
             # Összerakjuk a végeredményt
             scores = score_data.get("scores", {})
