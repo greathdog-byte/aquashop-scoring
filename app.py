@@ -159,6 +159,14 @@ if scan_btn and domain_input:
     from urllib.parse import urlparse
     domain = urlparse(raw).netloc.replace("www.", "") or raw
 
+    st.markdown("""
+    <style>
+    [data-testid="stStatusWidget"] { color: #ffffff !important; }
+    [data-testid="stStatusWidget"] p { color: #e0e0e0 !important; }
+    div[data-testid="stStatus"] p { color: #e0e0e0 !important; }
+    .st-emotion-cache-1gulkj5 p { color: #e0e0e0 !important; }
+    </style>
+    """, unsafe_allow_html=True)
     with st.status(f"🤖 Elemzés: {domain}...", expanded=True) as status:
         st.write("🔍 Webshop felkeresése Google kereséssel...")
         try:
@@ -238,7 +246,12 @@ Add vissza CSAK ezt a JSON-t, semmi más szöveg:
             found_fl  = brand_data.get("fluidra", [])
             found_neu = brand_data.get("egyeb", [])
             webshop_neve = brand_data.get("webshop_neve", domain)
-            osszefoglalo = brand_data.get("osszefoglalo", "")
+            raw_osszefoglalo = brand_data.get("osszefoglalo", "")
+            # Ha JSON kód szivárgott be az összefoglalóba, töröljük
+            if raw_osszefoglalo.strip().startswith(("{", "```")):
+                osszefoglalo = ""
+            else:
+                osszefoglalo = raw_osszefoglalo
 
             st.write(f"📊 Talált márkák: Aquashop={len(found_aq)}, Aqualing={len(found_al)}, Fluidra={len(found_fl)}, Egyéb={len(found_neu)}")
 
@@ -293,14 +306,22 @@ Add vissza CSAK ezt a JSON-t:
 
             # Összerakjuk a végeredményt
             scores = score_data.get("scores", {})
-            calc_total = sum(scores.values())
+            calc_total = sum(int(v) for v in scores.values())
+
+            # Tier automatikus meghatározása a total alapján
+            if calc_total >= 85:   auto_tier = "PLATINUM"
+            elif calc_total >= 65: auto_tier = "GOLD"
+            elif calc_total >= 40: auto_tier = "SILVER"
+            elif calc_total >= 20: auto_tier = "BASIC"
+            else:                  auto_tier = "INAKTÍV"
+
             result = {
                 "domain": domain,
                 "partner_neve": webshop_neve,
                 "osszefoglalo": osszefoglalo,
                 "scores": scores,
                 "total": min(100, calc_total),
-                "tier": score_data.get("tier", "BASIC"),
+                "tier": auto_tier,
                 "markak": {"aquashop": found_aq, "aqualing": found_al, "fluidra": found_fl, "egyeb": found_neu},
                 "markaok_szama": {"aquashop": len(found_aq), "aqualing": len(found_al), "fluidra": len(found_fl), "egyeb": len(found_neu)},
                 "bizonyitekok": score_data.get("bizonyitekok", {}),
@@ -365,12 +386,14 @@ Add vissza CSAK ezt a JSON-t:
     scores = result.get("scores", {})
     for key, label, max_pts in DIM_DEFS:
         pts = int(scores.get(key, 0))
+        pct = pts / max_pts if max_pts > 0 else 0
         c1, c2 = st.columns([4,1])
         with c1:
-            st.markdown(f"<div style='font-size:13px;color:#c8d8f0;margin-bottom:2px'>{label}</div>", unsafe_allow_html=True)
-            st.progress(pts / max_pts)
+            st.markdown(f"<div style='font-size:13px;color:#e0eeff;margin-bottom:4px;font-weight:500'>{label}</div>", unsafe_allow_html=True)
+            st.progress(pct)
         with c2:
-            st.markdown(f"<div style='font-size:13px;font-weight:700;color:#e8f0fe;text-align:right;padding-top:4px'>{pts}/{max_pts}</div>", unsafe_allow_html=True)
+            color = "#00d4ff" if pts > 0 else "#666"
+            st.markdown(f"<div style='font-size:14px;font-weight:700;color:{color};text-align:right;padding-top:4px'>{pts}/{max_pts}</div>", unsafe_allow_html=True)
 
     # Bizonyítékok
     biz = result.get("bizonyitekok", {})
@@ -386,11 +409,15 @@ Add vissza CSAK ezt a JSON-t:
         for i, (t, v) in enumerate(items):
             if v:
                 with (c1 if i%2==0 else c2):
-                    st.markdown(f'<div class="ev-card"><div class="ev-title">{t}</div><div style="font-size:12px;color:#d0e4f8">{v}</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="ev-card"><div class="ev-title">{t}</div><div style="font-size:12px;color:#e0eeff;line-height:1.6">{v}</div></div>', unsafe_allow_html=True)
 
     # Javaslatok
     st.markdown('<div class="section-label">▸ Javasolt teendők</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="rec-box"><div style="font-size:13px;color:#d0e4f8;line-height:1.7">{result.get("javasolt_teendok","").replace(chr(10),"<br>")}</div></div>', unsafe_allow_html=True)
+    javasolt = result.get("javasolt_teendok", "")
+    if javasolt and not javasolt.strip().startswith(("{","```")):
+        st.markdown(f'<div class="rec-box"><div style="font-size:13px;color:#e0eeff;line-height:1.8">{javasolt.replace(chr(10),"<br>")}</div></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="rec-box"><div style="font-size:13px;color:#7a9fc0">Nem érkezett javaslat ebből az elemzésből.</div></div>', unsafe_allow_html=True)
 
     # History
     st.session_state.history.insert(0, {
