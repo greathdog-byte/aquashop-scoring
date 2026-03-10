@@ -5,27 +5,36 @@ import json
 import re
 from datetime import datetime
 
-def gemini_call(client, prompt, use_search=False, retries=3):
-    """Gemini hívás automatikus újrapróbálkozással 503 esetén."""
+def gemini_call(client, prompt, use_search=False, retries=2):
+    """Gemini hívás több modellel és újrapróbálkozással."""
     import time
-    cfg_args = {"temperature": 0.1, "max_output_tokens": 2000}
+    MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    cfg_args = {"temperature": 0.1, "max_output_tokens": 2500}
     if use_search:
         cfg_args["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-    for attempt in range(retries):
-        try:
-            return client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(**cfg_args)
-            )
-        except Exception as e:
-            if "503" in str(e) or "UNAVAILABLE" in str(e):
-                if attempt < retries - 1:
-                    wait = (attempt + 1) * 8
-                    time.sleep(wait)
-                    continue
-            raise e
-    raise Exception("A Gemini szerver túlterhelt, próbáld újra 1-2 perc múlva.")
+    last_error = ""
+    for model in MODELS:
+        for attempt in range(retries):
+            try:
+                return client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(**cfg_args)
+                )
+            except Exception as e:
+                err = str(e)
+                last_error = err
+                if "503" in err or "UNAVAILABLE" in err:
+                    if attempt < retries - 1:
+                        time.sleep(10)
+                        continue
+                elif "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    break  # kvóta limit - próbáljuk a következő modellt
+                elif "404" in err or "NOT_FOUND" in err:
+                    break  # modell nem elérhető - következő
+                else:
+                    raise e
+    raise Exception(f"Minden modell elérhetetlen. Utolsó hiba: {last_error}")
 
 st.set_page_config(page_title="Aquashop · Partner Scoring", page_icon="💧", layout="centered")
 
