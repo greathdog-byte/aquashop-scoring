@@ -149,11 +149,28 @@ if scan_btn and domain_input:
             )
             st.write("⚡ Pontszámok kiszámítása...")
             raw_text = response.text
-            clean = re.sub(r'```json|```','',raw_text).strip()
-            json_match = re.search(r'\{[\s\S]*\}', clean)
-            if not json_match:
+            # Robusztus JSON kinyerés
+            clean = re.sub(r'```json|```', '', raw_text).strip()
+            # Megkeressük a JSON kezdetét és végét
+            start = clean.find('{')
+            end = clean.rfind('}')
+            if start == -1 or end == -1:
                 raise ValueError("Nem érkezett JSON válasz. Próbáld újra!")
-            result = json.loads(json_match.group())
+            json_str = clean[start:end+1]
+            # Escape-eljük a problémás karaktereket
+            try:
+                result = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Ha még mindig hibás, kérjük újra csak a JSON-t
+                fix_response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=f"Az alábbi szövegből nyerd ki a JSON objektumot és add vissza CSAK a valid JSON-t, semmi mást:\n\n{json_str[:3000]}",
+                    config=types.GenerateContentConfig(temperature=0)
+                )
+                fix_text = re.sub(r'```json|```', '', fix_response.text).strip()
+                fix_start = fix_text.find('{')
+                fix_end = fix_text.rfind('}')
+                result = json.loads(fix_text[fix_start:fix_end+1])
             status.update(label="✅ Elemzés kész!", state="complete")
         except Exception as e:
             status.update(label="❌ Hiba", state="error")
