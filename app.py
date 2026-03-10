@@ -5,16 +5,28 @@ import json
 import re
 from datetime import datetime
 
-def gemini_call(client, prompt, use_search=False, retries=2):
-    """Gemini hívás több modellel és újrapróbálkozással."""
+def get_available_models(client):
+    """Lekérdezi az elérhető modelleket és visszaadja a preferált sorrendben."""
+    preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite",
+                 "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+    try:
+        available = {m.name.split("/")[-1] for m in client.models.list()
+                     if "generateContent" in (m.supported_actions or [])}
+        ordered = [m for m in preferred if m in available]
+        return ordered if ordered else preferred
+    except:
+        return preferred
+
+def gemini_call(client, prompt, use_search=False):
+    """Gemini hívás – elérhető modelleket dinamikusan kérdezi le."""
     import time
-    MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = get_available_models(client)
     cfg_args = {"temperature": 0.1, "max_output_tokens": 2500}
     if use_search:
         cfg_args["tools"] = [types.Tool(google_search=types.GoogleSearch())]
     last_error = ""
-    for model in MODELS:
-        for attempt in range(retries):
+    for model in models:
+        for attempt in range(2):
             try:
                 return client.models.generate_content(
                     model=model,
@@ -25,13 +37,13 @@ def gemini_call(client, prompt, use_search=False, retries=2):
                 err = str(e)
                 last_error = err
                 if "503" in err or "UNAVAILABLE" in err:
-                    if attempt < retries - 1:
+                    if attempt == 0:
                         time.sleep(10)
                         continue
                 elif "429" in err or "RESOURCE_EXHAUSTED" in err:
-                    break  # kvóta limit - próbáljuk a következő modellt
+                    break  # kvóta limit → következő modell
                 elif "404" in err or "NOT_FOUND" in err:
-                    break  # modell nem elérhető - következő
+                    break  # nem elérhető → következő modell
                 else:
                     raise e
     raise Exception(f"Minden modell elérhetetlen. Utolsó hiba: {last_error}")
