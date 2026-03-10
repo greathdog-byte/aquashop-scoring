@@ -5,6 +5,28 @@ import json
 import re
 from datetime import datetime
 
+def gemini_call(client, prompt, use_search=False, retries=3):
+    """Gemini hívás automatikus újrapróbálkozással 503 esetén."""
+    import time
+    cfg_args = {"temperature": 0.1, "max_output_tokens": 2000}
+    if use_search:
+        cfg_args["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+    for attempt in range(retries):
+        try:
+            return client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(**cfg_args)
+            )
+        except Exception as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                if attempt < retries - 1:
+                    wait = (attempt + 1) * 8
+                    time.sleep(wait)
+                    continue
+            raise e
+    raise Exception("A Gemini szerver túlterhelt, próbáld újra 1-2 perc múlva.")
+
 st.set_page_config(page_title="Aquashop · Partner Scoring", page_icon="💧", layout="centered")
 
 st.markdown("""
@@ -194,15 +216,7 @@ Ellenőrzendő FLUIDRA márkák: {fl_brands}
 Add vissza CSAK ezt a JSON-t, semmi más szöveg:
 {{"aquashop":["ide írd a talált aquashop márkákat"],"aqualing":["ide írd a talált aqualing márkákat"],"fluidra":["ide írd a talált fluidra márkákat"],"egyeb":["egyéb márkák"],"webshop_neve":"string","osszefoglalo":"mit talaltál a webshopban 2-3 mondatban"}}"""
 
-            brand_response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=brand_prompt,
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                    temperature=0.1,
-                    max_output_tokens=1500,
-                )
-            )
+            brand_response = gemini_call(client, brand_prompt, use_search=True)
 
             # Márka JSON kinyerése
             brand_raw = brand_response.text if brand_response.text else ""
@@ -256,40 +270,46 @@ Add vissza CSAK ezt a JSON-t, semmi más szöveg:
             st.write(f"📊 Talált márkák: Aquashop={len(found_aq)}, Aqualing={len(found_al)}, Fluidra={len(found_fl)}, Egyéb={len(found_neu)}")
 
             # ── 2. LÉPÉS: Pontozás ──────────────────────────────────
-            score_prompt = f"""Pontozd ezt a webshopot a talált márkák alapján.
+            score_prompt = f"""Keresd fel ezt a webshopot és pontozd: {raw}
 
-Webshop: {raw}
-Webshop neve: {webshop_neve}
-Összefoglaló: {osszefoglalo}
+MÁR ISMERT ADATOK az előző keresésből:
+- Webshop neve: {webshop_neve}
+- Talált AQUASHOP márkák ({len(found_aq)} db): {", ".join(found_aq) if found_aq else "nincs"}
+- Talált AQUALING márkák ({len(found_al)} db): {", ".join(found_al) if found_al else "nincs"}
+- Talált FLUIDRA márkák ({len(found_fl)} db): {", ".join(found_fl) if found_fl else "nincs"}
+- Talált EGYÉB márkák ({len(found_neu)} db): {", ".join(found_neu) if found_neu else "nincs"}
 
-Talált AQUASHOP márkák ({len(found_aq)} db): {", ".join(found_aq) if found_aq else "nincs"}
-Talált AQUALING márkák ({len(found_al)} db): {", ".join(found_al) if found_al else "nincs"}
-Talált FLUIDRA márkák ({len(found_fl)} db): {", ".join(found_fl) if found_fl else "nincs"}
-Talált EGYÉB márkák ({len(found_neu)} db): {", ".join(found_neu) if found_neu else "nincs"}
+MOST: Nézd meg a webshop termékoldalait, kategóriáit, leírásait és pontozd:
 
-PONTOZÁSI SZABÁLYOK:
-exkluziv_termekek (max 40):
-  0 Aquashop márka = 0 pont
-  1-2 márka = 10 pont
-  3-4 márka = 20 pont
-  5-7 márka = 30 pont
-  8+ márka = 40 pont
+exkluziv_termekek (max 40) - KÖTELEZŐ SZABÁLY:
+  {len(found_aq)} Aquashop márka van → {"0 pont" if len(found_aq)==0 else "10 pont" if len(found_aq)<=2 else "20 pont" if len(found_aq)<=4 else "30 pont" if len(found_aq)<=7 else "40 pont"}
+  TEHÁT exkluziv_termekek = {"0" if len(found_aq)==0 else "10" if len(found_aq)<=2 else "20" if len(found_aq)<=4 else "30" if len(found_aq)<=7 else "40"}
 
-kinalat_teljessege (max 25): medence/spa termékkör mélysége
-tartalmi_minoseg (max 20): leírások, képek, műszaki adatok
-webshop_aktivitas (max 10): frissesség, árak, készlet
-seo_elkotelezettsege (max 5): kulcsszó-optimalizáltság
+kinalat_teljessege (max 25):
+  1-5 pont: csak néhány alaptermék
+  6-15 pont: közepes kínálat, több kategória
+  16-25 pont: széles medence/spa kínálat, sok kategória
 
-TIER: 85-100=PLATINUM, 65-84=GOLD, 40-64=SILVER, 20-39=BASIC, 0-19=INAKTÍV
+tartalmi_minoseg (max 20):
+  1-7 pont: rövid leírások, kevés kép
+  8-14 pont: közepes minőség
+  15-20 pont: részletes leírások, sok kép, műszaki adatok
 
-Add vissza CSAK ezt a JSON-t:
-{{"scores":{{"exkluziv_termekek":0,"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"total":0,"tier":"SILVER","javasolt_teendok":"konkrét javaslatok","bizonyitekok":{{"talalt_termekek":"string","kinalat_szelessege":"string","tartalom_minosege":"string","aktivitas_frissesseg":"string"}}}}"""
+webshop_aktivitas (max 10):
+  1-4 pont: régi tartalom, hiányzó árak
+  5-7 pont: részben friss
+  8-10 pont: naprakész árak, készletjelzés, friss tartalom
 
-            score_response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=score_prompt,
-                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=1000)
-            )
+seo_elkotelezettsege (max 5):
+  1-2 pont: nincs optimalizálás
+  3-5 pont: kulcsszavak a terméknevekben és leírásokban
+
+FONTOS: Minden mezőbe írj NEM NULLA értéket ha a webshop él és van tartalma!
+
+Add vissza CSAK ezt a JSON-t, semmi más szöveg:
+{{"scores":{{"exkluziv_termekek":{0 if len(found_aq)==0 else 10 if len(found_aq)<=2 else 20 if len(found_aq)<=4 else 30 if len(found_aq)<=7 else 40},"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"javasolt_teendok":"konkrét fejlesztési javaslatok magyarul","bizonyitekok":{{"talalt_termekek":"mit találtál","kinalat_szelessege":"milyen kategóriák vannak","tartalom_minosege":"leírások és képek","aktivitas_frissesseg":"árak és frissesség"}}}}"""
+
+            score_response = gemini_call(client, score_prompt, use_search=True)
 
             score_raw = score_response.text if score_response.text else "{}"
             score_text = re.sub(r'```json|```', '', score_raw).strip()
