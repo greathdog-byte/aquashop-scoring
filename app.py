@@ -74,26 +74,32 @@ ALL_BRANDS_LIST = ", ".join(b for d in BRAND_DB.values() for b in d["brands"])
 
 SYSTEM_PROMPT = f"""Te egy Aquashop viszonteladói webshop elemző vagy. Az Aquashop egy magyarországi medence és spa nagykereskedő.
 
-ISMERT MÁRKAADATBÁZIS:
+ISMERT MÁRKAADATBÁZIS - EZEKET KELL KERESNI A WEBSHOPBAN:
 AQUASHOP márkák: {", ".join(BRAND_DB["aquashop"]["brands"])}
 AQUALING márkák: {", ".join(BRAND_DB["aqualing"]["brands"])}
 FLUIDRA-KEREX márkák: {", ".join(BRAND_DB["fluidra"]["brands"])}
 
-FELADATOD:
-1. Keresd fel a megadott webshopot Google Search segítségével
-2. Azonosítsd az összes terméket és márkát
-3. Sorolj minden márkát a fenti adatbázis alapján
-4. Ha egy márka nem szerepel, az "egyeb" kategóriába kerül
+KÖTELEZŐ LÉPÉSEK:
+1. Keresd fel a webshopot Google Search-csel
+2. Nézd át a termékkategóriákat és termékeket
+3. Minden egyes márkát ELLENŐRIZZ: szerepel-e a fenti listában?
+4. A "markaok_szama" mezőbe KÖTELEZŐ a ténylegesen megtalált márkák számát írni - NEM 0-t!
+5. Ha Fairland, Dolphin, Maytronics, Saci, Gemas, Sopremapool stb. szerepel → aquashop kategória
+6. Ha Bestway, Intex, Pontaqua, PoolTrend stb. szerepel → aqualing kategória  
+7. Ha Astralpool, Zodiac, Bayrol, GRE stb. szerepel → fluidra kategória
+8. Ha egyik sem → egyeb kategória
 
 ÉRTÉKELÉSI DIMENZIÓK:
-- exkluziv_termekek (max 40): Aquashop márkák száma, dedikált kategóriák
-- kinalat_teljessege (max 25): Medence/spa termékkör mélysége
-- tartalmi_minoseg (max 20): Leírások, képek, műszaki adatok
-- webshop_aktivitas (max 10): Frissesség, árak, készletinfo
+- exkluziv_termekek (max 40): Aquashop márkák száma és jelenléte (ha 0 aquashop márka → max 5 pont)
+- kinalat_teljessege (max 25): Medence/spa termékkör mélysége összességében
+- tartalmi_minoseg (max 20): Leírások minősége, képek száma, műszaki adatok
+- webshop_aktivitas (max 10): Frissesség, naprakész árak, készletinfo
 - seo_elkotelezettsege (max 5): Kulcsszó-optimalizáltság
 
-Válaszolj KIZÁRÓLAG valid JSON-ban, semmi más szöveg:
-{{"domain":"string","partner_neve":"string","scores":{{"exkluziv_termekek":0,"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"total":0,"tier":"PLATINUM|GOLD|SILVER|BASIC|INAKTÍV","osszefoglalo":"string","markak":{{"aquashop":[],"aqualing":[],"fluidra":[],"egyeb":[]}},"markaok_szama":{{"aquashop":0,"aqualing":0,"fluidra":0,"egyeb":0}},"bizonyitekok":{{"talalt_termekek":"string","kinalat_szelessege":"string","tartalom_minosege":"string","aktivitas_frissesseg":"string"}},"javasolt_teendok":"string"}}"""
+FONTOS: A "total" mező a scores értékeinek összege legyen!
+
+Válaszolj KIZÁRÓLAG valid JSON-ban, semmi más szöveg, kód blokk nélkül:
+{{"domain":"string","partner_neve":"string","scores":{{"exkluziv_termekek":0,"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"total":0,"tier":"PLATINUM|GOLD|SILVER|BASIC|INAKTÍV","osszefoglalo":"2-3 mondatos magyar összefoglaló","markak":{{"aquashop":["itt sorold fel a ténylegesen talált aquashop márkákat"],"aqualing":["aqualing márkák"],"fluidra":["fluidra márkák"],"egyeb":["egyéb márkák"]}},"markaok_szama":{{"aquashop":0,"aqualing":0,"fluidra":0,"egyeb":0}},"bizonyitekok":{{"talalt_termekek":"konkrét termékek/márkák amiket találtál","kinalat_szelessege":"milyen szélesen fedik a medence/spa területet","tartalom_minosege":"leírások és képek minősége","aktivitas_frissesseg":"mikor frissítették, van-e ár és készlet"}},"javasolt_teendok":"konkrét javaslatok pontokban"}}"""
 
 TIER_CONFIG = {
     "PLATINUM": {"emoji": "🥇", "color": "#00d4ff", "label": "PLATINUM Partner"},
@@ -156,11 +162,28 @@ if scan_btn and domain_input:
         st.write("🔍 Webshop felkeresése Google kereséssel...")
         try:
             client = genai.Client(api_key=st.session_state.api_key)
-            prompt = f"""{SYSTEM_PROMPT}\n\nElemzendő webshop: {raw}\n\nKeresd fel Google kereséssel, azonosítsd az összes márkát. Különösen keresd: {ALL_BRANDS_LIST}\nVálaszolj KIZÁRÓLAG JSON-ban."""
+            prompt = f"""{SYSTEM_PROMPT}
+
+Elemzendő webshop: {raw}
+
+FELADAT: Keresd fel ezt a webshopot és azonosítsd az összes márkát.
+
+Különösen keresd ezeket a márkaneveket a webshop termékeiben:
+AQUASHOP: {", ".join(BRAND_DB["aquashop"]["brands"])}
+AQUALING: {", ".join(BRAND_DB["aqualing"]["brands"])}  
+FLUIDRA: {", ".join(BRAND_DB["fluidra"]["brands"])}
+
+FONTOS SZABÁLYOK:
+- Ha találsz bármilyen márkát a listából, tedd a megfelelő kategóriába
+- A markaok_szama mezőben számold meg pontosan hány márkát találtál kategóriánként
+- NE írj 0-t ha találtál márkákat!
+- A total = scores összes értékének összege
+
+Válaszolj CSAK JSON-nal, semmi más szöveg!"""
 
             st.write("📊 Aquashop vs. konkurens márkák összehasonlítása...")
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-1.5-flash-latest",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -181,10 +204,21 @@ if scan_btn and domain_input:
             # Escape-eljük a problémás karaktereket
             try:
                 result = json.loads(json_str)
+                # Márka számok újraszámlálása
+                markak = result.get("markak", {})
+                mc = result.get("markaok_szama", {})
+                for k in ["aquashop", "aqualing", "fluidra", "egyeb"]:
+                    if mc.get(k, 0) == 0 and len(markak.get(k, [])) > 0:
+                        mc[k] = len(markak[k])
+                result["markaok_szama"] = mc
+                scores = result.get("scores", {})
+                calc_total = sum(scores.values())
+                if result.get("total", 0) == 0 and calc_total > 0:
+                    result["total"] = min(100, calc_total)
             except json.JSONDecodeError:
                 # Ha még mindig hibás, kérjük újra csak a JSON-t
                 fix_response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-1.5-flash-latest",
                     contents=f"Az alábbi szövegből nyerd ki a JSON objektumot és add vissza CSAK a valid JSON-t, semmi mást:\n\n{json_str[:3000]}",
                     config=types.GenerateContentConfig(temperature=0)
                 )
@@ -192,6 +226,20 @@ if scan_btn and domain_input:
                 fix_start = fix_text.find('{')
                 fix_end = fix_text.rfind('}')
                 result = json.loads(fix_text[fix_start:fix_end+1])
+
+            # Márka számok újraszámlálása ha AI 0-t adott vissza tévesen
+            markak = result.get("markak", {})
+            mc = result.get("markaok_szama", {})
+            for k in ["aquashop", "aqualing", "fluidra", "egyeb"]:
+                if mc.get(k, 0) == 0 and len(markak.get(k, [])) > 0:
+                    mc[k] = len(markak[k])
+            result["markaok_szama"] = mc
+            # Total újraszámítás
+            scores = result.get("scores", {})
+            calc_total = sum(scores.values())
+            if result.get("total", 0) == 0 and calc_total > 0:
+                result["total"] = min(100, calc_total)
+
             status.update(label="✅ Elemzés kész!", state="complete")
         except Exception as e:
             status.update(label="❌ Hiba", state="error")
