@@ -10,26 +10,47 @@ st.set_page_config(page_title="Aquashop · Partner Scoring", page_icon="💧", l
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap');
-html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-[data-testid="stAppViewContainer"] { background: #060912; }
+
+/* ── Alap ── */
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; color: #e8f0fe; }
+[data-testid="stAppViewContainer"] { background: #060912; color: #e8f0fe; }
 [data-testid="stHeader"] { background: #060912; border-bottom: 1px solid #1c2a42; }
-h1,h2,h3 { font-family: 'Syne', sans-serif !important; }
-.score-hero { background: linear-gradient(135deg,#0d1424,#121d30); border: 1px solid #1c2a42; border-radius: 16px; padding: 28px; margin: 16px 0; position: relative; overflow: hidden; }
+[data-testid="stSidebar"] { background: #0d1424; }
+[data-testid="stSidebar"] * { color: #c8d8f0 !important; }
+
+/* Streamlit alapszövegek felülírása */
+p, span, div, label { color: #c8d8f0; }
+.stMarkdown p { color: #c8d8f0; }
+h1,h2,h3 { font-family: 'Syne', sans-serif !important; color: #ffffff; }
+
+/* Input mezők */
+input { background: #121d30 !important; color: #e8f0fe !important; border-color: #243350 !important; }
+.stTextInput input { color: #e8f0fe !important; }
+
+/* ── Komponensek ── */
+.score-hero { background: linear-gradient(135deg,#0d1424,#121d30); border: 1px solid #2a3f5a; border-radius: 16px; padding: 28px; margin: 16px 0; position: relative; overflow: hidden; }
 .score-hero::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg,#0055ff,#00d4ff,#00ffb3); }
 .score-big { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 56px; line-height: 1; background: linear-gradient(135deg,#00d4ff,#0055ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .tier-badge { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 26px; margin-bottom: 4px; }
-.ratio-bar-container { background: #121d30; border: 1px solid #1c2a42; border-radius: 12px; padding: 20px; margin: 12px 0; }
+
+.ratio-bar-container { background: #0d1830; border: 1px solid #2a3f5a; border-radius: 12px; padding: 20px; margin: 12px 0; }
 .ratio-bar { height: 32px; border-radius: 10px; overflow: hidden; display: flex; margin: 10px 0; }
-.seg { height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: rgba(0,0,0,0.75); white-space: nowrap; overflow: hidden; }
+.seg { height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: rgba(0,0,0,0.8); white-space: nowrap; overflow: hidden; }
 .seg-aq { background: #00d4ff; } .seg-al { background: #f5c842; } .seg-fl { background: #ff6b35; } .seg-neu { background: #8fa8c8; }
-.brand-chip { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; margin: 3px; }
-.chip-aq { background: rgba(0,212,255,0.15); color: #00d4ff; border: 1px solid rgba(0,212,255,0.3); }
-.chip-al { background: rgba(245,200,66,0.15); color: #f5c842; border: 1px solid rgba(245,200,66,0.3); }
-.chip-fl { background: rgba(255,107,53,0.15); color: #ff6b35; border: 1px solid rgba(255,107,53,0.3); }
-.chip-neu { background: rgba(143,168,200,0.15); color: #8fa8c8; border: 1px solid rgba(143,168,200,0.3); }
-.ev-card { background: #121d30; border: 1px solid #1c2a42; border-radius: 10px; padding: 14px; margin: 6px 0; }
-.ev-title { font-size: 11px; color: #4a6080; margin-bottom: 6px; }
-.rec-box { background: #121d30; border: 1px solid #243350; border-radius: 12px; padding: 18px; margin: 12px 0; }
+
+.brand-chip { display: inline-block; padding: 4px 11px; border-radius: 20px; font-size: 12px; font-weight: 600; margin: 3px; }
+.chip-aq { background: rgba(0,212,255,0.18); color: #5ee8ff; border: 1px solid rgba(0,212,255,0.4); }
+.chip-al { background: rgba(245,200,66,0.18); color: #fdd835; border: 1px solid rgba(245,200,66,0.4); }
+.chip-fl { background: rgba(255,107,53,0.18); color: #ff8c5a; border: 1px solid rgba(255,107,53,0.4); }
+.chip-neu { background: rgba(180,200,230,0.15); color: #b4c8e6; border: 1px solid rgba(180,200,230,0.3); }
+
+.ev-card { background: #0d1830; border: 1px solid #2a3f5a; border-radius: 10px; padding: 14px; margin: 6px 0; }
+.ev-title { font-size: 11px; color: #7a9fc0; margin-bottom: 6px; font-weight: 600; letter-spacing: 0.5px; }
+.ev-card div { color: #d0e4f8 !important; }
+
+.rec-box { background: #0d1830; border: 1px solid #2a3f5a; border-radius: 12px; padding: 18px; margin: 12px 0; }
+.rec-box div { color: #d0e4f8 !important; }
+
 .section-label { font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #00d4ff; margin: 20px 0 10px; }
 </style>
 """, unsafe_allow_html=True)
