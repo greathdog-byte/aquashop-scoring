@@ -164,83 +164,111 @@ if scan_btn and domain_input:
         try:
             client = genai.Client(api_key=api_key)
 
+            st.write("📊 Aquashop vs. konkurens márkák összehasonlítása...")
+
+            # ── 1. LÉPÉS: Márka keresés ─────────────────────────
             aq_brands = ", ".join(BRAND_DB["aquashop"]["brands"])
             al_brands = ", ".join(BRAND_DB["aqualing"]["brands"])
             fl_brands = ", ".join(BRAND_DB["fluidra"]["brands"])
 
-            prompt = f"""{SYSTEM_PROMPT}
+            brand_prompt = f"""Keresd fel ezt a webshopot: {raw}
 
-Elemzendő webshop: {raw}
+Végezd el ezeket a Google kereséseket:
+1. site:{domain} termékek
+2. site:{domain} {" OR ".join(BRAND_DB["aquashop"]["brands"][:6])}
+3. site:{domain} {" OR ".join(BRAND_DB["aqualing"]["brands"][:5])}
+4. site:{domain} {" OR ".join(BRAND_DB["fluidra"]["brands"][:5])}
 
-KÖTELEZŐ KERESÉSI LÉPÉSEK - végezd el MIND a négy keresést:
+Ellenőrzendő AQUASHOP márkák: {aq_brands}
+Ellenőrzendő AQUALING márkák: {al_brands}
+Ellenőrzendő FLUIDRA márkák: {fl_brands}
 
-1. Keresd: site:{domain} termékek márkák
-2. Keresd: site:{domain} {" OR ".join(BRAND_DB["aquashop"]["brands"][:8])}
-3. Keresd: site:{domain} {" OR ".join(BRAND_DB["aqualing"]["brands"][:6])}
-4. Keresd: site:{domain} {" OR ".join(BRAND_DB["fluidra"]["brands"][:6])}
+Add vissza CSAK ezt a JSON-t, semmi más szöveg:
+{{"aquashop":["ide írd a talált aquashop márkákat"],"aqualing":["ide írd a talált aqualing márkákat"],"fluidra":["ide írd a talált fluidra márkákat"],"egyeb":["egyéb márkák"],"webshop_neve":"string","osszefoglalo":"mit talaltál a webshopban 2-3 mondatban"}}"""
 
-AQUASHOP márkák amiket keress: {aq_brands}
-AQUALING márkák amiket keress: {al_brands}
-FLUIDRA márkák amiket keress: {fl_brands}
-
-Ha bármelyik márkanév szerepel a webshop termékeiben, kategorizáld be!
-Ha pl. "InverPro" vagy "Fairland" szerepel → aquashop listába kerül.
-Ha pl. "Bestway" vagy "Intex" szerepel → aqualing listába kerül.
-Ha pl. "Astralpool" vagy "Zodiac" szerepel → fluidra listába kerül.
-
-A markaok_szama mezőben add meg a ténylegesen talált márkák számát!
-Válaszolj KIZÁRÓLAG JSON-ban, semmi más szöveg!"""
-
-            st.write("📊 Aquashop vs. konkurens márkák összehasonlítása...")
-
-            response = client.models.generate_content(
+            brand_response = client.models.generate_content(
                 model="gemini-2.5-flash",
-                contents=prompt,
+                contents=brand_prompt,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
                     temperature=0.1,
-                    max_output_tokens=2500,
+                    max_output_tokens=1500,
                 )
             )
 
-            st.write("⚡ Pontszámok kiszámítása...")
-            raw_text = response.text
+            # Márka JSON kinyerése
+            brand_text = re.sub(r'```json|```', '', brand_response.text).strip()
+            bs = brand_text.find('{')
+            be = brand_text.rfind('}')
+            if bs == -1:
+                raise ValueError("Nem sikerült a webshopot elérni. Próbáld újra!")
+            brand_data = json.loads(brand_text[bs:be+1])
 
-            # Robusztus JSON kinyerés
-            clean = re.sub(r'```json|```', '', raw_text).strip()
-            start = clean.find('{')
-            end = clean.rfind('}')
-            if start == -1 or end == -1:
-                raise ValueError("Nem érkezett JSON válasz. Próbáld újra!")
-            json_str = clean[start:end+1]
+            found_aq  = brand_data.get("aquashop", [])
+            found_al  = brand_data.get("aqualing", [])
+            found_fl  = brand_data.get("fluidra", [])
+            found_neu = brand_data.get("egyeb", [])
+            webshop_neve = brand_data.get("webshop_neve", domain)
+            osszefoglalo = brand_data.get("osszefoglalo", "")
 
-            try:
-                result = json.loads(json_str)
-            except json.JSONDecodeError:
-                # Ha hibás JSON, kérjük újra csak a tisztítást
-                fix_response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=f"Javítsd ki ezt a JSON-t és add vissza CSAK a valid JSON objektumot, semmi mást:\n\n{json_str[:3000]}",
-                    config=types.GenerateContentConfig(temperature=0)
-                )
-                fix_text = re.sub(r'```json|```', '', fix_response.text).strip()
-                fs = fix_text.find('{')
-                fe = fix_text.rfind('}')
-                result = json.loads(fix_text[fs:fe+1])
+            st.write(f"📊 Talált márkák: Aquashop={len(found_aq)}, Aqualing={len(found_al)}, Fluidra={len(found_fl)}, Egyéb={len(found_neu)}")
 
-            # Márka számok korrekciója ha AI 0-t adott tévesen
-            markak = result.get("markak", {})
-            mc = result.get("markaok_szama", {})
-            for k in ["aquashop", "aqualing", "fluidra", "egyeb"]:
-                if mc.get(k, 0) == 0 and len(markak.get(k, [])) > 0:
-                    mc[k] = len(markak[k])
-            result["markaok_szama"] = mc
+            # ── 2. LÉPÉS: Pontozás ──────────────────────────────────
+            score_prompt = f"""Pontozd ezt a webshopot a talált márkák alapján.
 
-            # Total korrekció
-            scores = result.get("scores", {})
+Webshop: {raw}
+Webshop neve: {webshop_neve}
+Összefoglaló: {osszefoglalo}
+
+Talált AQUASHOP márkák ({len(found_aq)} db): {", ".join(found_aq) if found_aq else "nincs"}
+Talált AQUALING márkák ({len(found_al)} db): {", ".join(found_al) if found_al else "nincs"}
+Talált FLUIDRA márkák ({len(found_fl)} db): {", ".join(found_fl) if found_fl else "nincs"}
+Talált EGYÉB márkák ({len(found_neu)} db): {", ".join(found_neu) if found_neu else "nincs"}
+
+PONTOZÁSI SZABÁLYOK:
+exkluziv_termekek (max 40):
+  0 Aquashop márka = 0 pont
+  1-2 márka = 10 pont
+  3-4 márka = 20 pont
+  5-7 márka = 30 pont
+  8+ márka = 40 pont
+
+kinalat_teljessege (max 25): medence/spa termékkör mélysége
+tartalmi_minoseg (max 20): leírások, képek, műszaki adatok
+webshop_aktivitas (max 10): frissesség, árak, készlet
+seo_elkotelezettsege (max 5): kulcsszó-optimalizáltság
+
+TIER: 85-100=PLATINUM, 65-84=GOLD, 40-64=SILVER, 20-39=BASIC, 0-19=INAKTÍV
+
+Add vissza CSAK ezt a JSON-t:
+{{"scores":{{"exkluziv_termekek":0,"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"total":0,"tier":"SILVER","javasolt_teendok":"konkrét javaslatok","bizonyitekok":{{"talalt_termekek":"string","kinalat_szelessege":"string","tartalom_minosege":"string","aktivitas_frissesseg":"string"}}}}"""
+
+            score_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=score_prompt,
+                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=1000)
+            )
+
+            score_text = re.sub(r'```json|```', '', score_response.text).strip()
+            ss = score_text.find('{')
+            se = score_text.rfind('}')
+            score_data = json.loads(score_text[ss:se+1])
+
+            # Összerakjuk a végeredményt
+            scores = score_data.get("scores", {})
             calc_total = sum(scores.values())
-            if result.get("total", 0) == 0 and calc_total > 0:
-                result["total"] = min(100, calc_total)
+            result = {
+                "domain": domain,
+                "partner_neve": webshop_neve,
+                "osszefoglalo": osszefoglalo,
+                "scores": scores,
+                "total": min(100, calc_total),
+                "tier": score_data.get("tier", "BASIC"),
+                "markak": {"aquashop": found_aq, "aqualing": found_al, "fluidra": found_fl, "egyeb": found_neu},
+                "markaok_szama": {"aquashop": len(found_aq), "aqualing": len(found_al), "fluidra": len(found_fl), "egyeb": len(found_neu)},
+                "bizonyitekok": score_data.get("bizonyitekok", {}),
+                "javasolt_teendok": score_data.get("javasolt_teendok", ""),
+            }
 
             status.update(label="✅ Elemzés kész!", state="complete")
 
