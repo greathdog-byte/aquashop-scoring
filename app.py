@@ -1,6 +1,5 @@
 import streamlit as st
-from google import genai
-from google.genai import types
+import anthropic
 import json
 import re
 from datetime import datetime
@@ -125,17 +124,14 @@ st.markdown("""<div style='display:flex;align-items:center;gap:12px;padding:8px 
   <div style='margin-left:auto;font-size:10px;letter-spacing:1px;color:#00d4ff;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:3px 8px'>AI · GEMINI</div>
 </div>""", unsafe_allow_html=True)
 
-# API kulcs betöltése: először Streamlit secrets, ha nincs akkor env, ha nincs akkor beégetett
+# API kulcs betöltése Streamlit secrets-ből
 def get_api_key():
     try:
-        return st.secrets["GEMINI_API_KEY"]
+        return st.secrets["ANTHROPIC_API_KEY"]
     except:
         pass
     import os
-    env_key = os.environ.get("GEMINI_API_KEY", "")
-    if env_key:
-        return env_key
-    return "AIzaSyBYAmmzzIZ6-KTnduURbpRQvCqHSHye9hw"
+    return os.environ.get("ANTHROPIC_API_KEY", "")
 
 if "api_key" not in st.session_state:
     st.session_state.api_key = get_api_key()
@@ -169,7 +165,6 @@ if scan_btn and domain_input:
     with st.status(f"🤖 Elemzés: {domain}...", expanded=True) as status:
         st.write("🔍 Webshop felkeresése Google kereséssel...")
         try:
-            client = genai.Client(api_key=st.session_state.api_key)
             prompt = f"""{SYSTEM_PROMPT}
 
 Elemzendő webshop: {raw}
@@ -190,36 +185,19 @@ FONTOS SZABÁLYOK:
 Válaszolj CSAK JSON-nal, semmi más szöveg!"""
 
             st.write("📊 Aquashop vs. konkurens márkák összehasonlítása...")
-            # Modell fallback lista - sorban próbáljuk
-            MODELS = [
-                "gemini-2.0-flash",
-                "gemini-2.0-flash-lite",
-                "gemini-1.5-flash",
-                "gemini-1.5-flash-8b",
-            ]
-            response = None
-            used_model = ""
-            for model_name in MODELS:
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            tools=[types.Tool(google_search=types.GoogleSearch())],
-                            temperature=0.1,
-                            max_output_tokens=2500,
-                        )
-                    )
-                    used_model = model_name
-                    break
-                except Exception as model_err:
-                    if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
-                        continue
-                    raise model_err
-            if response is None:
-                raise Exception("Egyik Gemini modell sem elérhető. Ellenőrizd az API kulcsot!")
-            st.write(f"⚡ Pontszámok kiszámítása... ({used_model})")
-            raw_text = response.text
+            client = anthropic.Anthropic(api_key=st.session_state.api_key)
+            response = client.messages.create(
+                model="claude-opus-4-5",
+                max_tokens=2500,
+                tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            st.write("⚡ Pontszámok kiszámítása...")
+            raw_text = " ".join(
+                block.text for block in response.content
+                if hasattr(block, "text")
+            )
             # Robusztus JSON kinyerés
             clean = re.sub(r'```json|```', '', raw_text).strip()
             # Megkeressük a JSON kezdetét és végét
