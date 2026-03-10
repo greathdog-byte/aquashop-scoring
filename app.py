@@ -62,30 +62,35 @@ ALL_BRANDS_LIST = ", ".join(b for d in BRAND_DB.values() for b in d["brands"])
 
 SYSTEM_PROMPT = f"""Te egy Aquashop viszonteladói webshop elemző vagy. Az Aquashop egy magyarországi medence és spa nagykereskedő.
 
-ISMERT MÁRKAADATBÁZIS - EZEKET KELL KERESNI:
-AQUASHOP márkák: {", ".join(BRAND_DB["aquashop"]["brands"])}
-AQUALING márkák: {", ".join(BRAND_DB["aqualing"]["brands"])}
-FLUIDRA-KEREX márkák: {", ".join(BRAND_DB["fluidra"]["brands"])}
+FELADATOD: Elemezd a megadott webshopot és azonosítsd az összes márkát.
 
-KÖTELEZŐ LÉPÉSEK:
-1. Keresd fel a webshopot Google Search-csel
-2. Nézd át a termékkategóriákat és termékeket
-3. Minden márkát ellenőrizz: szerepel-e a fenti listában?
-4. A markaok_szama mezőbe a ténylegesen megtalált márkák számát írd - NEM 0-t!
-5. Ha Fairland, Dolphin, Maytronics, Saci stb. szerepel → aquashop
-6. Ha Bestway, Intex, Pontaqua, PoolTrend stb. szerepel → aqualing
-7. Ha Astralpool, Zodiac, Bayrol, GRE stb. szerepel → fluidra
-8. Ha egyik sem → egyeb
+MÁRKAADATBÁZIS:
+AQUASHOP márkák (Aquashop Kft. által forgalmazott): {", ".join(BRAND_DB["aquashop"]["brands"])}
+AQUALING márkák (konkurens nagykereskedő): {", ".join(BRAND_DB["aqualing"]["brands"])}
+FLUIDRA-KEREX márkák (konkurens nagykereskedő): {", ".join(BRAND_DB["fluidra"]["brands"])}
 
-ÉRTÉKELÉSI DIMENZIÓK:
-- exkluziv_termekek (max 40): Aquashop márkák száma és jelenléte
-- kinalat_teljessege (max 25): Medence/spa termékkör mélysége
-- tartalmi_minoseg (max 20): Leírások, képek, műszaki adatok minősége
-- webshop_aktivitas (max 10): Frissesség, árak, készletinfo
-- seo_elkotelezettsege (max 5): Kulcsszó-optimalizáltság
+KERESÉSI MÓDSZER:
+- Végezz több Google keresést a webshopban
+- Keresd a termékoldalakat, kategóriákat, márkalistákat
+- Minden egyes márkát ellenőrizz a fenti listákban
+- Ha egy márka bármilyen formában szerepel (pl. "InverPro szivattyú", "Fairland hőszivattyú") → add a megfelelő listába
 
-Válaszolj KIZÁRÓLAG valid JSON-ban, semmi más szöveg, kód blokk nélkül:
-{{"domain":"string","partner_neve":"string","scores":{{"exkluziv_termekek":0,"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"total":0,"tier":"PLATINUM|GOLD|SILVER|BASIC|INAKTÍV","osszefoglalo":"2-3 mondatos magyar összefoglaló","markak":{{"aquashop":[],"aqualing":[],"fluidra":[],"egyeb":[]}},"markaok_szama":{{"aquashop":0,"aqualing":0,"fluidra":0,"egyeb":0}},"bizonyitekok":{{"talalt_termekek":"konkrét termékek/márkák","kinalat_szelessege":"termékkör szélessége","tartalom_minosege":"leírások és képek minősége","aktivitas_frissesseg":"frissesség és árak"}},"javasolt_teendok":"konkrét javaslatok"}}"""
+PONTOZÁS:
+- exkluziv_termekek (max 40 pont):
+  * 0 Aquashop márka = 0 pont
+  * 1-2 Aquashop márka = 10 pont
+  * 3-4 Aquashop márka = 20 pont
+  * 5-7 Aquashop márka = 30 pont
+  * 8+ Aquashop márka = 40 pont
+- kinalat_teljessege (max 25): széles medence/spa kínálat = magasabb pont
+- tartalmi_minoseg (max 20): részletes leírások, sok kép, műszaki adatok
+- webshop_aktivitas (max 10): naprakész árak, készletjelzés, friss tartalom
+- seo_elkotelezettsege (max 5): kulcsszavak a terméknevekben és leírásokban
+
+TIER BESOROLÁS: 85-100=PLATINUM, 65-84=GOLD, 40-64=SILVER, 20-39=BASIC, 0-19=INAKTÍV
+
+Válaszolj KIZÁRÓLAG valid JSON-ban, kód blokk nélkül:
+{{"domain":"string","partner_neve":"string","scores":{{"exkluziv_termekek":0,"kinalat_teljessege":0,"tartalmi_minoseg":0,"webshop_aktivitas":0,"seo_elkotelezettsege":0}},"total":0,"tier":"PLATINUM|GOLD|SILVER|BASIC|INAKTÍV","osszefoglalo":"2-3 mondatos magyar összefoglaló","markak":{{"aquashop":["talált aquashop márkák"],"aqualing":["talált aqualing márkák"],"fluidra":["talált fluidra márkák"],"egyeb":["egyéb márkák"]}},"markaok_szama":{{"aquashop":0,"aqualing":0,"fluidra":0,"egyeb":0}},"bizonyitekok":{{"talalt_termekek":"konkrét márkák és termékek amiket találtál","kinalat_szelessege":"milyen termékkategóriák vannak","tartalom_minosege":"leírások és képek minősége","aktivitas_frissesseg":"árak és készlet állapota"}},"javasolt_teendok":"konkrét fejlesztési javaslatok"}}"""
 
 TIER_CONFIG = {
     "PLATINUM": {"emoji": "🥇", "color": "#00d4ff", "label": "PLATINUM Partner"},
@@ -159,12 +164,31 @@ if scan_btn and domain_input:
         try:
             client = genai.Client(api_key=api_key)
 
+            aq_brands = ", ".join(BRAND_DB["aquashop"]["brands"])
+            al_brands = ", ".join(BRAND_DB["aqualing"]["brands"])
+            fl_brands = ", ".join(BRAND_DB["fluidra"]["brands"])
+
             prompt = f"""{SYSTEM_PROMPT}
 
 Elemzendő webshop: {raw}
 
-Keresd fel Google kereséssel, azonosítsd az összes márkát.
-Különösen keresd: {ALL_BRANDS_LIST}
+KÖTELEZŐ KERESÉSI LÉPÉSEK - végezd el MIND a négy keresést:
+
+1. Keresd: site:{domain} termékek márkák
+2. Keresd: site:{domain} {" OR ".join(BRAND_DB["aquashop"]["brands"][:8])}
+3. Keresd: site:{domain} {" OR ".join(BRAND_DB["aqualing"]["brands"][:6])}
+4. Keresd: site:{domain} {" OR ".join(BRAND_DB["fluidra"]["brands"][:6])}
+
+AQUASHOP márkák amiket keress: {aq_brands}
+AQUALING márkák amiket keress: {al_brands}
+FLUIDRA márkák amiket keress: {fl_brands}
+
+Ha bármelyik márkanév szerepel a webshop termékeiben, kategorizáld be!
+Ha pl. "InverPro" vagy "Fairland" szerepel → aquashop listába kerül.
+Ha pl. "Bestway" vagy "Intex" szerepel → aqualing listába kerül.
+Ha pl. "Astralpool" vagy "Zodiac" szerepel → fluidra listába kerül.
+
+A markaok_szama mezőben add meg a ténylegesen talált márkák számát!
 Válaszolj KIZÁRÓLAG JSON-ban, semmi más szöveg!"""
 
             st.write("📊 Aquashop vs. konkurens márkák összehasonlítása...")
